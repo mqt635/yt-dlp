@@ -1,6 +1,3 @@
-# coding: utf-8
-from __future__ import unicode_literals
-
 import json
 
 from .common import InfoExtractor
@@ -21,7 +18,7 @@ class AlJazeeraIE(InfoExtractor):
             'timestamp': 1636219149,
             'description': 'U sarajevskim naseljima Rajlovac i Reljevo stambeni objekti, ali i industrijska postrojenja i dalje su pod vodom.',
             'upload_date': '20211106',
-        }
+        },
     }, {
         'url': 'https://balkans.aljazeera.net/videos/2021/11/6/djokovic-usao-u-finale-mastersa-u-parizu',
         'info_dict': {
@@ -36,7 +33,7 @@ class AlJazeeraIE(InfoExtractor):
     BRIGHTCOVE_URL_RE = r'https?://players.brightcove.net/(?P<account>\d+)/(?P<player_id>[a-zA-Z0-9]+)_(?P<embed>[^/]+)/index.html\?videoId=(?P<id>\d+)'
 
     def _real_extract(self, url):
-        base, post_type, id = self._match_valid_url(url).groups()
+        base, post_type, display_id = self._match_valid_url(url).groups()
         wp = {
             'balkans.aljazeera.net': 'ajb',
             'chinese.aljazeera.net': 'chinese',
@@ -50,11 +47,11 @@ class AlJazeeraIE(InfoExtractor):
             'news': 'news',
         }[post_type.split('/')[0]]
         video = self._download_json(
-            f'https://{base}/graphql', id, query={
+            f'https://{base}/graphql', display_id, query={
                 'wp-site': wp,
                 'operationName': 'ArchipelagoSingleArticleQuery',
                 'variables': json.dumps({
-                    'name': id,
+                    'name': display_id,
                     'postType': post_type,
                 }),
             }, headers={
@@ -67,7 +64,7 @@ class AlJazeeraIE(InfoExtractor):
         embed = 'default'
 
         if video_id is None:
-            webpage = self._download_webpage(url, id)
+            webpage = self._download_webpage(url, display_id)
 
             account, player_id, embed, video_id = self._search_regex(self.BRIGHTCOVE_URL_RE, webpage, 'video id',
                                                                      group=(1, 2, 3, 4), default=(None, None, None, None))
@@ -76,11 +73,11 @@ class AlJazeeraIE(InfoExtractor):
                 return {
                     '_type': 'url_transparent',
                     'url': url,
-                    'ie_key': 'Generic'
+                    'ie_key': 'Generic',
                 }
 
         return {
             '_type': 'url_transparent',
             'url': f'https://players.brightcove.net/{account}/{player_id}_{embed}/index.html?videoId={video_id}',
-            'ie_key': 'BrightcoveNew'
+            'ie_key': 'BrightcoveNew',
         }

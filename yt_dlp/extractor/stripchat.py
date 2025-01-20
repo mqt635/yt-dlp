@@ -1,59 +1,56 @@
-# coding: utf-8
-from __future__ import unicode_literals
-
 from .common import InfoExtractor
-from ..compat import (
-    compat_str,
-)
 from ..utils import (
     ExtractorError,
+    UserNotLive,
     lowercase_escape,
-    try_get,
+    traverse_obj,
 )
 
 
 class StripchatIE(InfoExtractor):
-    _VALID_URL = r'https?://stripchat\.com/(?P<id>[0-9A-Za-z-_]+)'
+    _VALID_URL = r'https?://stripchat\.com/(?P<id>[^/?#]+)'
     _TESTS = [{
-        'url': 'https://stripchat.com/feel_me',
+        'url': 'https://stripchat.com/Joselin_Flower',
         'info_dict': {
-            'id': 'feel_me',
+            'id': 'Joselin_Flower',
             'ext': 'mp4',
-            'title': 're:^feel_me [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$',
+            'title': 're:^Joselin_Flower [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$',
             'description': str,
             'is_live': True,
             'age_limit': 18,
         },
         'skip': 'Room is offline',
+    }, {
+        'url': 'https://stripchat.com/Rakhijaan@xh',
+        'only_matching': True,
     }]
 
     def _real_extract(self, url):
         video_id = self._match_id(url)
-        webpage = self._download_webpage(
-            'https://stripchat.com/%s/' % video_id, video_id,
-            headers=self.geo_verification_headers())
+        webpage = self._download_webpage(url, video_id, headers=self.geo_verification_headers())
+        data = self._search_json(
+            r'<script\b[^>]*>\s*window\.__PRELOADED_STATE__\s*=',
+            webpage, 'data', video_id, transform_source=lowercase_escape)
 
-        data = self._parse_json(
-            self._search_regex(
-                r'<script\b[^>]*>\s*window\.__PRELOADED_STATE__\s*=(?P<value>.*?)<\/script>',
-                webpage, 'data', default='{}', group='value'),
-            video_id, transform_source=lowercase_escape, fatal=False)
-        if not data:
-            raise ExtractorError('Unable to find configuration for stream.')
+        if traverse_obj(data, ('viewCam', 'show', {dict})):
+            raise ExtractorError('Model is in a private show', expected=True)
+        if not traverse_obj(data, ('viewCam', 'model', 'isLive', {bool})):
+            raise UserNotLive(video_id=video_id)
 
-        if try_get(data, lambda x: x['viewCam']['show'], dict):
-            raise ExtractorError('Model is in private show', expected=True)
-        elif not try_get(data, lambda x: x['viewCam']['model']['isLive'], bool):
-            raise ExtractorError('Model is offline', expected=True)
+        model_id = data['viewCam']['model']['id']
 
-        server = try_get(data, lambda x: x['viewCam']['viewServers']['flashphoner-hls'], compat_str)
-        host = try_get(data, lambda x: x['config']['data']['hlsStreamHost'], compat_str)
-        model_id = try_get(data, lambda x: x['viewCam']['model']['id'], int)
-
-        formats = self._extract_m3u8_formats(
-            'https://b-%s.%s/hls/%d/%d.m3u8' % (server, host, model_id, model_id),
-            video_id, ext='mp4', m3u8_id='hls', fatal=False, live=True)
-        self._sort_formats(formats)
+        formats = []
+        # HLS hosts are currently found in .configV3.static.features.hlsFallback.fallbackDomains[]
+        # The rest of the path is for backwards compatibility and to guard against A/B testing
+        for host in traverse_obj(data, ((('config', 'data'), ('configV3', 'static')), (
+                (('features', 'featuresV2'), 'hlsFallback', 'fallbackDomains', ...), 'hlsStreamHost'))):
+            formats = self._extract_m3u8_formats(
+                f'https://edge-hls.{host}/hls/{model_id}/master/{model_id}_auto.m3u8',
+                video_id, ext='mp4', m3u8_id='hls', fatal=False, live=True)
+            if formats:
+                break
+        if not formats:
+            self.raise_no_formats('Unable to extract stream host', video_id=video_id)
 
         return {
             'id': video_id,

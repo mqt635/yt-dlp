@@ -1,27 +1,17 @@
-# coding: utf-8
-from __future__ import unicode_literals
-
 import base64
 import io
-import sys
+import struct
 
 from .common import InfoExtractor
-from ..compat import (
-    compat_b64decode,
-    compat_struct_unpack,
-)
 from ..utils import (
-    determine_ext,
     ExtractorError,
+    determine_ext,
     float_or_none,
     qualities,
     remove_end,
     remove_start,
-    std_headers,
     try_get,
 )
-
-_bytes_to_chr = (lambda x: x) if sys.version_info[0] == 2 else (lambda x: map(chr, x))
 
 
 class RTVEALaCartaIE(InfoExtractor):
@@ -71,16 +61,16 @@ class RTVEALaCartaIE(InfoExtractor):
     }]
 
     def _real_initialize(self):
-        user_agent_b64 = base64.b64encode(std_headers['User-Agent'].encode('utf-8')).decode('utf-8')
+        user_agent_b64 = base64.b64encode(self.get_param('http_headers')['User-Agent'].encode()).decode('utf-8')
         self._manager = self._download_json(
             'http://www.rtve.es/odin/loki/' + user_agent_b64,
             None, 'Fetching manager info')['manager']
 
     @staticmethod
     def _decrypt_url(png):
-        encrypted_data = io.BytesIO(compat_b64decode(png)[8:])
+        encrypted_data = io.BytesIO(base64.b64decode(png)[8:])
         while True:
-            length = compat_struct_unpack('!I', encrypted_data.read(4))[0]
+            length = struct.unpack('!I', encrypted_data.read(4))[0]
             chunk_type = encrypted_data.read(4)
             if chunk_type == b'IEND':
                 break
@@ -91,7 +81,7 @@ class RTVEALaCartaIE(InfoExtractor):
                 alphabet = []
                 e = 0
                 d = 0
-                for l in _bytes_to_chr(alphabet_data):
+                for l in alphabet_data.decode('iso-8859-1'):
                     if d == 0:
                         alphabet.append(l)
                         d = e = (e + 1) % 4
@@ -101,7 +91,7 @@ class RTVEALaCartaIE(InfoExtractor):
                 f = 0
                 e = 3
                 b = 1
-                for letter in _bytes_to_chr(url_data):
+                for letter in url_data.decode('iso-8859-1'):
                     if f == 0:
                         l = int(letter) * 10
                         f = 1
@@ -120,7 +110,7 @@ class RTVEALaCartaIE(InfoExtractor):
 
     def _extract_png_formats(self, video_id):
         png = self._download_webpage(
-            'http://www.rtve.es/ztnr/movil/thumbnail/%s/videos/%s.png' % (self._manager, video_id),
+            f'http://www.rtve.es/ztnr/movil/thumbnail/{self._manager}/videos/{video_id}.png',
             video_id, 'Downloading url information', query={'q': 'v2'})
         q = qualities(['Media', 'Alta', 'HQ', 'HD_READY', 'HD_FULL'])
         formats = []
@@ -139,13 +129,12 @@ class RTVEALaCartaIE(InfoExtractor):
                     'quality': q(quality),
                     'url': video_url,
                 })
-        self._sort_formats(formats)
         return formats
 
     def _real_extract(self, url):
         video_id = self._match_id(url)
         info = self._download_json(
-            'http://www.rtve.es/api/videos/%s/config/alacarta_videos.json' % video_id,
+            f'http://www.rtve.es/api/videos/{video_id}/config/alacarta_videos.json',
             video_id)['page']['items'][0]
         if info['state'] == 'DESPU':
             raise ExtractorError('The video is no longer available', expected=True)
@@ -179,7 +168,7 @@ class RTVEALaCartaIE(InfoExtractor):
             for s in subs)
 
 
-class RTVEAudioIE(RTVEALaCartaIE):
+class RTVEAudioIE(RTVEALaCartaIE):  # XXX: Do not subclass from concrete IE
     IE_NAME = 'rtve.es:audio'
     IE_DESC = 'RTVE audio'
     _VALID_URL = r'https?://(?:www\.)?rtve\.es/(alacarta|play)/audios/[^/]+/[^/]+/(?P<id>[0-9]+)'
@@ -204,7 +193,7 @@ class RTVEAudioIE(RTVEALaCartaIE):
             'title': 'Ignatius Farray',
             'thumbnail': r're:https?://.+/1613243011863.jpg',
             'duration': 3559.559,
-            'series': 'En Radio 3'
+            'series': 'En Radio 3',
         },
     }, {
         'url': 'https://www.rtve.es/play/audios/frankenstein-o-el-moderno-prometeo/capitulo-26-ultimo-muerte-victor-juan-jose-plans-mary-shelley/6082623/',
@@ -215,7 +204,7 @@ class RTVEAudioIE(RTVEALaCartaIE):
             'title': 'Capítulo 26 y último: La muerte de Victor',
             'thumbnail': r're:https?://.+/1632147445707.jpg',
             'duration': 3174.086,
-            'series': 'Frankenstein o el moderno Prometeo'
+            'series': 'Frankenstein o el moderno Prometeo',
         },
     }]
 
@@ -227,8 +216,7 @@ class RTVEAudioIE(RTVEALaCartaIE):
         media url
         """
         png = self._download_webpage(
-            'http://www.rtve.es/ztnr/movil/thumbnail/%s/audios/%s.png' %
-            (self._manager, audio_id),
+            f'http://www.rtve.es/ztnr/movil/thumbnail/{self._manager}/audios/{audio_id}.png',
             audio_id, 'Downloading url information', query={'q': 'v2'})
         q = qualities(['Media', 'Alta', 'HQ', 'HD_READY', 'HD_FULL'])
         formats = []
@@ -247,13 +235,12 @@ class RTVEAudioIE(RTVEALaCartaIE):
                     'quality': q(quality),
                     'url': audio_url,
                 })
-        self._sort_formats(formats)
         return formats
 
     def _real_extract(self, url):
         audio_id = self._match_id(url)
         info = self._download_json(
-            'https://www.rtve.es/api/audios/%s.json' % audio_id,
+            f'https://www.rtve.es/api/audios/{audio_id}.json',
             audio_id)['page']['items'][0]
 
         return {
@@ -266,7 +253,7 @@ class RTVEAudioIE(RTVEALaCartaIE):
         }
 
 
-class RTVEInfantilIE(RTVEALaCartaIE):
+class RTVEInfantilIE(RTVEALaCartaIE):  # XXX: Do not subclass from concrete IE
     IE_NAME = 'rtve.es:infantil'
     IE_DESC = 'RTVE infantil'
     _VALID_URL = r'https?://(?:www\.)?rtve\.es/infantil/serie/[^/]+/video/[^/]+/(?P<id>[0-9]+)/'
@@ -285,7 +272,7 @@ class RTVEInfantilIE(RTVEALaCartaIE):
     }]
 
 
-class RTVELiveIE(RTVEALaCartaIE):
+class RTVELiveIE(RTVEALaCartaIE):  # XXX: Do not subclass from concrete IE
     IE_NAME = 'rtve.es:live'
     IE_DESC = 'RTVE.es live streams'
     _VALID_URL = r'https?://(?:www\.)?rtve\.es/directo/(?P<id>[a-zA-Z0-9-]+)'
@@ -299,7 +286,7 @@ class RTVELiveIE(RTVEALaCartaIE):
         },
         'params': {
             'skip_download': 'live stream',
-        }
+        },
     }]
 
     def _real_extract(self, url):

@@ -1,15 +1,8 @@
-# coding: utf-8
-from __future__ import unicode_literals
-
 import re
+import urllib.parse
 
 from .common import InfoExtractor
-from ..utils import (
-    int_or_none,
-    urlencode_postdata,
-    compat_str,
-    ExtractorError,
-)
+from ..utils import ExtractorError, int_or_none, urlencode_postdata
 
 
 class CuriosityStreamBaseIE(InfoExtractor):
@@ -22,10 +15,15 @@ class CuriosityStreamBaseIE(InfoExtractor):
             if isinstance(error, dict):
                 error = ', '.join(error.values())
             raise ExtractorError(
-                '%s said: %s' % (self.IE_NAME, error), expected=True)
+                f'{self.IE_NAME} said: {error}', expected=True)
 
     def _call_api(self, path, video_id, query=None):
         headers = {}
+        if not self._auth_token:
+            auth_cookie = self._get_cookies('https://curiositystream.com').get('auth_token')
+            if auth_cookie:
+                self.write_debug('Obtained auth_token cookie')
+                self._auth_token = urllib.parse.unquote(auth_cookie.value)
         if self._auth_token:
             headers['X-Auth-Token'] = self._auth_token
         result = self._download_json(
@@ -33,14 +31,11 @@ class CuriosityStreamBaseIE(InfoExtractor):
         self._handle_errors(result)
         return result['data']
 
-    def _real_initialize(self):
-        email, password = self._get_login_info()
-        if email is None:
-            return
+    def _perform_login(self, username, password):
         result = self._download_json(
             'https://api.curiositystream.com/v1/login', None,
             note='Logging in', data=urlencode_postdata({
-                'email': email,
+                'email': username,
                 'password': password,
             }))
         self._handle_errors(result)
@@ -51,7 +46,7 @@ class CuriosityStreamIE(CuriosityStreamBaseIE):
     IE_NAME = 'curiositystream'
     _VALID_URL = r'https?://(?:app\.)?curiositystream\.com/video/(?P<id>\d+)'
     _TESTS = [{
-        'url': 'https://app.curiositystream.com/video/2',
+        'url': 'http://app.curiositystream.com/video/2',
         'info_dict': {
             'id': '2',
             'ext': 'mp4',
@@ -59,8 +54,11 @@ class CuriosityStreamIE(CuriosityStreamBaseIE):
             'description': 'Vint Cerf, Google\'s Chief Internet Evangelist, describes how he and Bob Kahn created the internet.',
             'channel': 'Curiosity Stream',
             'categories': ['Technology', 'Interview'],
-            'average_rating': 96.79,
+            'average_rating': float,
             'series_id': '2',
+            'thumbnail': r're:https://img.curiositystream.com/.+\.jpg',
+            'tags': [],
+            'duration': 158,
         },
         'params': {
             # m3u8 download
@@ -122,7 +120,6 @@ class CuriosityStreamIE(CuriosityStreamBaseIE):
                             'format_id': 'http',
                         })
                     formats.append(fmt)
-        self._sort_formats(formats)
 
         title = media['title']
 
@@ -159,10 +156,10 @@ class CuriosityStreamCollectionBaseIE(CuriosityStreamBaseIE):
         collection = self._call_api(collection_id, collection_id)
         entries = []
         for media in collection.get('media', []):
-            media_id = compat_str(media.get('id'))
+            media_id = str(media.get('id'))
             media_type, ie = ('series', CuriosityStreamSeriesIE) if media.get('is_collection') else ('video', CuriosityStreamIE)
             entries.append(self.url_result(
-                'https://curiositystream.com/%s/%s' % (media_type, media_id),
+                f'https://curiositystream.com/{media_type}/{media_id}',
                 ie=ie.ie_key(), video_id=media_id))
         return self.playlist_result(
             entries, collection_id,

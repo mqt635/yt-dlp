@@ -1,5 +1,3 @@
-from __future__ import unicode_literals
-
 from .common import InfoExtractor
 
 
@@ -58,8 +56,8 @@ class RTRFMIE(InfoExtractor):
             url = None
             self.raise_no_formats('Expired or no episode on this date', expected=True)
         return {
-            'id': '%s-%s' % (show, date),
-            'title': '%s %s' % (title, date),
+            'id': f'{show}-{date}',
+            'title': f'{title} {date}',
             'series': title,
             'url': url,
             'release_date': date,

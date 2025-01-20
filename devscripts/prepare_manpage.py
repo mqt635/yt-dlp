@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
-from __future__ import unicode_literals
 
-import io
-import optparse
+# Allow direct execution
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 import os.path
 import re
+
+from devscripts.utils import (
+    compose_functions,
+    get_filename_args,
+    read_file,
+    write_file,
+)
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 README_FILE = os.path.join(ROOT_DIR, 'README.md')
@@ -13,7 +24,7 @@ PREFIX = r'''%yt-dlp(1)
 
 # NAME
 
-yt\-dlp \- A youtube-dl fork with additional features and patches
+yt\-dlp \- A feature\-rich command\-line audio/video downloader
 
 # SYNOPSIS
 
@@ -24,31 +35,33 @@ yt\-dlp \- A youtube-dl fork with additional features and patches
 '''
 
 
-def main():
-    parser = optparse.OptionParser(usage='%prog OUTFILE.md')
-    options, args = parser.parse_args()
-    if len(args) != 1:
-        parser.error('Expected an output filename')
-
-    outfile, = args
-
-    with io.open(README_FILE, encoding='utf-8') as f:
-        readme = f.read()
-
-    readme = filter_excluded_sections(readme)
-    readme = move_sections(readme)
-    readme = filter_options(readme)
-
-    with io.open(outfile, 'w', encoding='utf-8') as outf:
-        outf.write(PREFIX + readme)
-
-
 def filter_excluded_sections(readme):
     EXCLUDED_SECTION_BEGIN_STRING = re.escape('<!-- MANPAGE: BEGIN EXCLUDED SECTION -->')
     EXCLUDED_SECTION_END_STRING = re.escape('<!-- MANPAGE: END EXCLUDED SECTION -->')
     return re.sub(
         rf'(?s){EXCLUDED_SECTION_BEGIN_STRING}.+?{EXCLUDED_SECTION_END_STRING}\n',
         '', readme)
+
+
+def _convert_code_blocks(readme):
+    current_code_block = None
+
+    for line in readme.splitlines(True):
+        if current_code_block:
+            if line == current_code_block:
+                current_code_block = None
+                yield '\n'
+            else:
+                yield f'    {line}'
+        elif line.startswith('```'):
+            current_code_block = line.count('`') * '`' + '\n'
+            yield '\n'
+        else:
+            yield line
+
+
+def convert_code_blocks(readme):
+    return ''.join(_convert_code_blocks(readme))
 
 
 def move_sections(readme):
@@ -73,25 +86,34 @@ def move_sections(readme):
 
 def filter_options(readme):
     section = re.search(r'(?sm)^# USAGE AND OPTIONS\n.+?(?=^# )', readme).group(0)
+    section_new = section.replace('*', R'\*')
+
     options = '# OPTIONS\n'
-    for line in section.split('\n')[1:]:
-        if line.lstrip().startswith('-'):
-            split = re.split(r'\s{2,}', line.lstrip())
-            # Description string may start with `-` as well. If there is
-            # only one piece then it's a description bit not an option.
-            if len(split) > 1:
-                option, description = split
-                split_option = option.split(' ')
+    for line in section_new.split('\n')[1:]:
+        mobj = re.fullmatch(r'''(?x)
+                \s{4}(?P<opt>-(?:,\s|[^\s])+)
+                (?:\s(?P<meta>(?:[^\s]|\s(?!\s))+))?
+                (\s{2,}(?P<desc>.+))?
+            ''', line)
+        if not mobj:
+            options += f'{line.lstrip()}\n'
+            continue
+        option, metavar, description = mobj.group('opt', 'meta', 'desc')
 
-                if not split_option[-1].startswith('-'):  # metavar
-                    option = ' '.join(split_option[:-1] + [f'*{split_option[-1]}*'])
-
-                # Pandoc's definition_lists. See http://pandoc.org/README.html
-                options += f'\n{option}\n:   {description}\n'
-                continue
-        options += line.lstrip() + '\n'
+        # Pandoc's definition_lists. See http://pandoc.org/README.html
+        option = f'{option} *{metavar}*' if metavar else option
+        description = f'{description}\n' if description else ''
+        options += f'\n{option}\n:   {description}'
+        continue
 
     return readme.replace(section, options, 1)
+
+
+TRANSFORM = compose_functions(filter_excluded_sections, convert_code_blocks, move_sections, filter_options)
+
+
+def main():
+    write_file(get_filename_args(), PREFIX + TRANSFORM(read_file(README_FILE)))
 
 
 if __name__ == '__main__':

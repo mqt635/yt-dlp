@@ -1,9 +1,8 @@
-from __future__ import unicode_literals
-
 from .common import InfoExtractor
 
 
 class RadioDeIE(InfoExtractor):
+    _WORKING = False
     IE_NAME = 'radio.de'
     _VALID_URL = r'https?://(?P<id>.+?)\.(?:radio\.(?:de|at|fr|pt|es|pl|it)|rad\.io)'
     _TEST = {
@@ -18,7 +17,7 @@ class RadioDeIE(InfoExtractor):
         },
         'params': {
             'skip_download': True,
-        }
+        },
     }
 
     def _real_extract(self, url):
@@ -38,9 +37,8 @@ class RadioDeIE(InfoExtractor):
             'ext': stream['streamContentFormat'].lower(),
             'acodec': stream['streamContentFormat'],
             'abr': stream['bitRate'],
-            'asr': stream['sampleRate']
+            'asr': stream['sampleRate'],
         } for stream in broadcast['streamUrls']]
-        self._sort_formats(formats)
 
         return {
             'id': radio_id,

@@ -1,9 +1,7 @@
-# coding: utf-8
+import hashlib
+
 from .common import InfoExtractor
-from ..utils import (
-    ExtractorError,
-    try_get
-)
+from ..utils import ExtractorError, try_get
 
 
 class GofileIE(InfoExtractor):
@@ -19,22 +17,34 @@ class GofileIE(InfoExtractor):
                 'id': 'de571ac1-5edc-42e2-8ec2-bdac83ad4a31',
                 'filesize': 928116,
                 'ext': 'mp4',
-                'title': 'nuuh'
-            }
-        }]
-    }, {  # URL to test mixed file types
-        'url': 'https://gofile.io/d/avt34h',
+                'title': 'nuuh',
+                'release_timestamp': 1638338704,
+                'release_date': '20211201',
+            },
+        }],
+    }, {
+        'url': 'https://gofile.io/d/is8lKr',
         'info_dict': {
-            'id': 'avt34h',
-        },
-        'playlist_mincount': 1,
-    }, {  # URL to test no video/audio error
-        'url': 'https://gofile.io/d/aB03lZ',
-        'info_dict': {
-            'id': 'aB03lZ',
+            'id': 'TMjXd9',
+            'ext': 'mp4',
         },
         'playlist_count': 0,
         'skip': 'No video/audio found at provided URL.',
+    }, {
+        'url': 'https://gofile.io/d/TMjXd9',
+        'info_dict': {
+            'id': 'TMjXd9',
+        },
+        'playlist_count': 1,
+    }, {
+        'url': 'https://gofile.io/d/gqOtRf',
+        'info_dict': {
+            'id': 'gqOtRf',
+        },
+        'playlist_mincount': 1,
+        'params': {
+            'videopassword': 'password',
+        },
     }]
     _TOKEN = None
 
@@ -45,34 +55,41 @@ class GofileIE(InfoExtractor):
             return
 
         account_data = self._download_json(
-            'https://api.gofile.io/createAccount', None, note='Getting a new guest account')
+            'https://api.gofile.io/accounts', None, 'Getting a new guest account', data=b'{}')
         self._TOKEN = account_data['data']['token']
-        self._set_cookie('gofile.io', 'accountToken', self._TOKEN)
+        self._set_cookie('.gofile.io', 'accountToken', self._TOKEN)
 
     def _entries(self, file_id):
+        query_params = {'wt': '4fd6sg89d7s6'}  # From https://gofile.io/dist/js/alljs.js
+        password = self.get_param('videopassword')
+        if password:
+            query_params['password'] = hashlib.sha256(password.encode()).hexdigest()
         files = self._download_json(
-            f'https://api.gofile.io/getContent?contentId={file_id}&token={self._TOKEN}&websiteToken=websiteToken&cache=true',
-            'Gofile', note='Getting filelist')
+            f'https://api.gofile.io/contents/{file_id}', file_id, 'Getting filelist',
+            query=query_params, headers={'Authorization': f'Bearer {self._TOKEN}'})
 
         status = files['status']
-        if status != 'ok':
+        if status == 'error-passwordRequired':
+            raise ExtractorError(
+                'This video is protected by a password, use the --video-password option', expected=True)
+        elif status != 'ok':
             raise ExtractorError(f'{self.IE_NAME} said: status {status}', expected=True)
 
         found_files = False
-        for file in (try_get(files, lambda x: x['data']['contents'], dict) or {}).values():
+        for file in (try_get(files, lambda x: x['data']['children'], dict) or {}).values():
             file_type, file_format = file.get('mimetype').split('/', 1)
             if file_type not in ('video', 'audio') and file_format != 'vnd.mts':
                 continue
 
             found_files = True
-            file_url = file.get('directLink')
+            file_url = file.get('link')
             if file_url:
                 yield {
                     'id': file['id'],
                     'title': file['name'].rsplit('.', 1)[0],
                     'url': file_url,
                     'filesize': file.get('size'),
-                    'release_timestamp': file.get('createTime')
+                    'release_timestamp': file.get('createTime'),
                 }
 
         if not found_files:

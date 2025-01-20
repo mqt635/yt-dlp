@@ -1,8 +1,7 @@
-# coding: utf-8
 from .common import InfoExtractor
 from ..utils import (
-    traverse_obj,
     strip_or_none,
+    traverse_obj,
 )
 
 
@@ -22,7 +21,7 @@ class RadioZetPodcastIE(InfoExtractor):
             'duration': 83,
             'series': 'Nie Ma Za Co',
             'creator': 'Katarzyna Pakosińska',
-        }
+        },
     }
 
     def _call_api(self, podcast_id, display_id):
